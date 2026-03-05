@@ -1,0 +1,148 @@
+<div align="center">
+
+# Libersuite Panel
+
+**An SSH & dnstt tunnel management service built with Go**
+
+[![License](https://img.shields.io/github/license/begirkaro/libersuite-panel)](LICENSE)
+[![Go Version](https://img.shields.io/github/go-mod/go-version/begirkaro/libersuite-panel)](go.mod)
+[![Issues](https://img.shields.io/github/issues/begirkaro/libersuite-panel)](https://github.com/begirkaro/libersuite-panel/issues)
+[![Stars](https://img.shields.io/github/stars/begirkaro/libersuite-panel)](https://github.com/begirkaro/libersuite-panel/stargazers)
+
+</div>
+
+---
+
+## About
+Libersuite Panel is an SSH and dnstt tunnel management service designed to simplify the administration of SSH/dnstt servers. Built with Go for performance and reliability, it provides an intuitive interface for managing SSH connections, users, and server configurations.
+
+## Installation
+
+### DNS Configuration
+
+Before installing, you need to configure your DNS records. This step is required for **dnstt** to function properly.
+
+**Example DNS Configuration:**
+
+1. Create an A record:
+   ```
+   A    tns.example.com    1.2.3.4
+   ```
+
+2. Create an NS record:
+   ```
+   NS   t.example.com      tns.example.com
+   ```
+
+Replace `example.com` with your actual domain and `1.2.3.4` with your server's IP address.
+
+### Make Sure Port 53 is Free
+
+On some servers, port 53 is occupied by `systemd-resolved`. To make sure port 53 is free and available for Libersuite Panel, follow these steps:
+
+1. **Edit `/etc/systemd/resolved.conf`:**
+
+   Open the configuration file in a text editor:
+   ```bash
+   sudo nano /etc/systemd/resolved.conf
+   ```
+
+    - If you see a line like `DNSStubListener=yes`, **change it to**:
+      ```
+      DNSStubListener=no
+      ```
+    - You can also add or set an upstream DNS server (such as Cloudflare’s DNS):
+      ```
+      DNS=1.1.1.1
+      ```
+
+2. **Update `/etc/resolv.conf`:**
+
+   Replace the default resolv.conf with a symlink to systemd’s configuration:
+   ```bash
+   sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+   ```
+
+3. **Restart systemd-resolved for the changes to take effect:**
+   ```bash
+   sudo systemctl restart systemd-resolved
+   ```
+
+### Quick Install
+
+Once your DNS is configured, install Libersuite Panel with a single command:
+
+```bash
+bash <(curl -Ls https://raw.githubusercontent.com/begirkaro/libersuite-panel/master/install.sh)
+```
+
+## Usage
+### Basic Commands
+
+```bash
+# Start the panel
+libersuite start
+
+# Stop the panel
+libersuite stop
+
+# Restart the panel
+libersuite restart
+
+# View logs
+libersuite logs
+```
+
+### Client Management Commands
+Libersuite provides commands to manage SSH VPN clients from your terminal:
+
+```bash
+# Add a new client
+libersuite client add <username> <password> [traffic_limit_gb] [expires_in_days]
+
+# List all clients
+libersuite client list
+
+# Remove a client
+libersuite client remove <username>
+
+# Enable a client
+libersuite client enable <username>
+
+# Disable a client
+libersuite client disable <username>
+
+# Export client config URLs (SSH & dnstt)
+libersuite client export <username> [server_ip]
+```
+
+#### Command Descriptions
+
+- **client add**: Adds a new client with optional traffic-limit (in GB) and expiration (in days).
+- **client list**: Lists all existing clients with their status, expiry, and usage.
+- **client remove**: Removes the specified client.
+- **client enable**: Enables a disabled client.
+- **client disable**: Disables a client.
+- **client export**: Outputs SSH and DNSTT config URLs for the specified client.
+
+Example to add a client with a 10GB traffic limit, valid for 30 days:
+```bash
+libersuite client add someone password123 10 30
+```
+Example to export a client config:
+```bash
+libersuite client export someone
+libersuite client export someone server_ip
+```
+
+### Client
+You can use `NetMod` client.
+
+## Contributing
+Contributions are welcome! Feel free to open an issue or submit a PR.
+
+## License
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Support
+- If you find this project useful, please consider starring the repository ⭐
