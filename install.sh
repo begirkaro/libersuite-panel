@@ -169,8 +169,10 @@ $USE_SLIPSTREAM && mkdir -p "$SLIPSTREAM_DIR"
 # ─── Install DNSTT ───────────────────────────────────────────────────────────
 if $USE_DNSTT; then
   echo "[+] Downloading dnstt..."
+  sudo systemctl stop dnstt 2>/dev/null || true
   cd "$DNSTT_DIR"
-  curl -L "$DNSTT_URL" -o dnstt-server-linux-amd64
+  curl -L "$DNSTT_URL" -o dnstt-server-linux-amd64.tmp
+  mv -f dnstt-server-linux-amd64.tmp dnstt-server-linux-amd64
   chmod +x dnstt-server-linux-amd64
 
   echo "[+] Generating dnstt key pair..."
@@ -218,8 +220,10 @@ fi
 # ─── Install Slipstream ──────────────────────────────────────────────────────
 if $USE_SLIPSTREAM; then
   echo "[+] Downloading slipstream-server..."
+  sudo systemctl stop slipstream 2>/dev/null || true
   cd "$SLIPSTREAM_DIR"
-  curl -L "$SLIPSTREAM_URL" -o slipstream-server
+  curl -L "$SLIPSTREAM_URL" -o slipstream-server.tmp
+  mv -f slipstream-server.tmp slipstream-server
   chmod +x slipstream-server
 
   echo "[+] Generating Slipstream TLS certificate..."
@@ -339,8 +343,10 @@ if [[ -z "$LIBERSUITE_URL" || "$LIBERSUITE_URL" != https://* ]]; then
   echo "  - Or check: https://api.github.com/repos/omid-official/libersuite-panel/releases/latest"
   exit 1
 fi
+sudo systemctl stop libersuite 2>/dev/null || true
 cd "$LIBER_DIR"
-curl -L "$LIBERSUITE_URL" -o panel
+curl -L "$LIBERSUITE_URL" -o panel.tmp
+mv -f panel.tmp panel
 chmod +x panel
 
 # Build panel server flags
@@ -375,7 +381,8 @@ sudo systemctl enable libersuite
 sudo systemctl restart libersuite
 
 echo "[+] Downloading libersuite.sh..."
-curl -L "$LIBERSUITE_SH_URL" -o "$LIBER_DIR/libersuite"
+curl -L "$LIBERSUITE_SH_URL" -o "$LIBER_DIR/libersuite.tmp"
+mv -f "$LIBER_DIR/libersuite.tmp" "$LIBER_DIR/libersuite"
 
 chmod +x "$LIBER_DIR/libersuite"
 
@@ -384,7 +391,8 @@ sudo install -m 755 "$LIBER_DIR/libersuite" "$BIN_TARGET"
 echo "libersuite command installed"
 
 echo "[+] Downloading Telegram bot script..."
-curl -L "$TELEGRAM_BOT_SCRIPT_URL" -o "$LIBER_DIR/telegram_bot.py"
+curl -L "$TELEGRAM_BOT_SCRIPT_URL" -o "$LIBER_DIR/telegram_bot.py.tmp"
+mv -f "$LIBER_DIR/telegram_bot.py.tmp" "$LIBER_DIR/telegram_bot.py"
 chmod +x "$LIBER_DIR/telegram_bot.py"
 
 echo "[+] Installing Telegram bot service..."
