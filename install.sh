@@ -148,6 +148,19 @@ if $USE_SLIPSTREAM; then
   done
 fi
 
+# ─── Free port 53 (systemd-resolved) ───────────────────────────────────────────
+if [[ -f /etc/systemd/resolved.conf ]]; then
+  echo "[+] Freeing port 53 (disabling systemd-resolved stub listener)..."
+  RESOLVED_CONF="/etc/systemd/resolved.conf"
+  sudo sed -i.bak -E 's/^#?\s*DNSStubListener=.*/DNSStubListener=no/' "$RESOLVED_CONF"
+  grep -q '^DNSStubListener=' "$RESOLVED_CONF" || sudo sed -i '/^\[Resolve\]/a DNSStubListener=no' "$RESOLVED_CONF"
+  if [[ -d /run/systemd/resolve ]]; then
+    sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
+  fi
+  sudo systemctl restart systemd-resolved 2>/dev/null || true
+  echo "    Port 53 is now free for DNS use."
+fi
+
 # ─── Create folders ──────────────────────────────────────────────────────────
 echo "[+] Creating folders..."
 mkdir -p "$LIBER_DIR"
