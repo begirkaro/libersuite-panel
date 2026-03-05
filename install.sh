@@ -4,8 +4,14 @@ set -e
 
 DNSTT_URL="https://dnstt.network/dnstt-server-linux-amd64"
 SLIPSTREAM_URL="https://github.com/begirkaro/slipstream-rust/releases/download/v0.1.0/slipstream-server-linux-amd64"
-# Direct download URL for latest release (no API parsing)
-LIBERSUITE_URL="https://github.com/begirkaro/libersuite-panel/releases/latest/download/libersuite-panel-linux-amd64"
+# Detect architecture for panel binary
+ARCH=$(uname -m)
+case "$ARCH" in
+  x86_64)   LIBERSUITE_ARCH="amd64" ;;
+  aarch64|arm64) LIBERSUITE_ARCH="arm64" ;;
+  *) echo "Unsupported architecture: $ARCH"; exit 1 ;;
+esac
+LIBERSUITE_URL="https://github.com/begirkaro/libersuite-panel/releases/latest/download/libersuite-panel-linux-${LIBERSUITE_ARCH}"
 # Raw base URL for scripts (use begirkaro for one-line install from that repo)
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/begirkaro/libersuite-panel/master}"
 LIBERSUITE_SH_URL="${LIBERSUITE_SH_URL:-$REPO_RAW/libersuite.sh}"
@@ -333,7 +339,22 @@ fi
 # ─── Install Libersuite panel ────────────────────────────────────────────────
 echo "[+] Downloading libersuite..."
 cd "$LIBER_DIR"
-curl -L "$LIBERSUITE_URL" -o panel
+if ! curl -Lsf "$LIBERSUITE_URL" -o panel 2>/dev/null || ! [[ -s panel ]]; then
+  echo "    Pre-built binary not found for $LIBERSUITE_ARCH, building from source..."
+  if command -v go >/dev/null 2>&1; then
+    BUILD_DIR=$(mktemp -d)
+    if git clone --depth 1 https://github.com/begirkaro/libersuite-panel.git "$BUILD_DIR" 2>/dev/null; then
+      (cd "$BUILD_DIR" && go build -o panel ./cmd/main.go 2>/dev/null) && cp "$BUILD_DIR/panel" "$LIBER_DIR/panel"
+    else
+      (cd "$BUILD_DIR" && curl -sL https://github.com/begirkaro/libersuite-panel/archive/refs/heads/master.tar.gz | tar xz --strip-components=1 && go build -o panel ./cmd/main.go 2>/dev/null) && cp "$BUILD_DIR/panel" "$LIBER_DIR/panel"
+    fi
+    rm -rf "$BUILD_DIR"
+  fi
+fi
+if [[ ! -s panel ]]; then
+  echo "Failed to get panel binary. For ARM64, create a new release with the updated workflow or install Go and run the install again."
+  exit 1
+fi
 chmod +x panel
 
 # Build panel server flags
