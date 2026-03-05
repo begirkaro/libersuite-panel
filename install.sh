@@ -4,16 +4,8 @@ set -e
 
 DNSTT_URL="https://dnstt.network/dnstt-server-linux-amd64"
 SLIPSTREAM_URL="https://github.com/begirkaro/slipstream-rust/releases/download/v0.1.0/slipstream-server-linux-amd64"
-LIBERSUITE_URL=$(curl -s https://api.github.com/repos/begirkaro/libersuite-panel/releases/latest \
-  | grep browser_download_url \
-  | grep libersuite-panel-linux-amd64 \
-  | head -n1 \
-  | cut -d '"' -f 4 \
-  | tr -d '\n\r' | xargs)
-# Fallback if API fails or returns empty
-if [[ -z "$LIBERSUITE_URL" ]]; then
-  LIBERSUITE_URL="https://github.com/begirkaro/libersuite-panel/releases/latest/download/libersuite-panel-linux-amd64"
-fi
+# Direct download URL for latest release (no API parsing)
+LIBERSUITE_URL="https://github.com/begirkaro/libersuite-panel/releases/latest/download/libersuite-panel-linux-amd64"
 # Raw base URL for scripts (use begirkaro for one-line install from that repo)
 REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/begirkaro/libersuite-panel/master}"
 LIBERSUITE_SH_URL="${LIBERSUITE_SH_URL:-$REPO_RAW/libersuite.sh}"
