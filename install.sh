@@ -4,11 +4,11 @@ set -e
 
 DNSTT_URL="https://dnstt.network/dnstt-server-linux-amd64"
 SLIPSTREAM_URL="https://github.com/begirkaro/slipstream-rust/releases/download/v0.1.0/slipstream-server-linux-amd64"
-# Direct download URL for latest release (no API parsing)
-LIBERSUITE_URL="https://github.com/begirkaro/libersuite-panel/releases/latest/download/libersuite-panel-linux-amd64"
-# Raw base URL for scripts (use begirkaro for one-line install from that repo)
-REPO_RAW="${REPO_RAW:-https://raw.githubusercontent.com/begirkaro/libersuite-panel/master}"
-LIBERSUITE_SH_URL="${LIBERSUITE_SH_URL:-$REPO_RAW/libersuite.sh}"
+LIBERSUITE_URL=$(curl -s https://api.github.com/repos/begirkaro/libersuite-panel/releases/latest \
+  | grep browser_download_url \
+  | grep libersuite-panel-linux-amd64 \
+  | cut -d '"' -f 4)
+LIBERSUITE_SH_URL="https://raw.githubusercontent.com/begirkaro/libersuite-panel/main/libersuite.sh"
 
 BASE_DIR="$HOME/libersuite"
 DNSTT_DIR="$BASE_DIR/dnstt"
@@ -99,14 +99,6 @@ LIBERSUITE_PORT="${LIBERSUITE_PORT:-2223}"
 SSH_PORT="${SSH_PORT:-2222}"
 SOCKS_PORT="${SOCKS_PORT:-1080}"
 
-# ─── Telegram Bot (optional but recommended) ───────────────────────────────────
-echo ""
-echo "Telegram Bot (panel management via Telegram, admin-only):"
-read -rp "Enter Telegram Bot Token (from @BotFather, or leave empty to skip): " TELEGRAM_BOT_TOKEN
-read -rp "Enter Admin Telegram ID (numeric, or leave empty to skip): " TELEGRAM_ADMIN_ID
-TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
-TELEGRAM_ADMIN_ID="${TELEGRAM_ADMIN_ID:-}"
-
 if [[ "$LIBERSUITE_PORT" == "$SSH_PORT" || "$LIBERSUITE_PORT" == "$SOCKS_PORT" || "$SSH_PORT" == "$SOCKS_PORT" ]]; then
   echo "Ports must be unique: libersuite, ssh, and socks cannot be the same"
   exit 1
@@ -144,19 +136,6 @@ if $USE_SLIPSTREAM; then
       SLIPSTREAM_ADDRS="$SLIPSTREAM_ADDRS,127.0.0.1:$slip_instance_port"
     fi
   done
-fi
-
-# ─── Free port 53 (systemd-resolved) ───────────────────────────────────────────
-if [[ -f /etc/systemd/resolved.conf ]]; then
-  echo "[+] Freeing port 53 (disabling systemd-resolved stub listener)..."
-  RESOLVED_CONF="/etc/systemd/resolved.conf"
-  sudo sed -i.bak -E 's/^#?\s*DNSStubListener=.*/DNSStubListener=no/' "$RESOLVED_CONF"
-  grep -q '^DNSStubListener=' "$RESOLVED_CONF" || sudo sed -i '/^\[Resolve\]/a DNSStubListener=no' "$RESOLVED_CONF"
-  if [[ -d /run/systemd/resolve ]]; then
-    sudo ln -sf /run/systemd/resolve/resolv.conf /etc/resolv.conf
-  fi
-  sudo systemctl restart systemd-resolved 2>/dev/null || true
-  echo "    Port 53 is now free for DNS use."
 fi
 
 # ─── Create folders ──────────────────────────────────────────────────────────
@@ -388,45 +367,7 @@ SLIPSTREAM_ADDRS="$SLIPSTREAM_ADDRS"
 LIBERSUITE_PORT="$LIBERSUITE_PORT"
 SSH_PORT="$SSH_PORT"
 SOCKS_PORT="$SOCKS_PORT"
-TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
-TELEGRAM_ADMIN_ID="$TELEGRAM_ADMIN_ID"
 EOF
-
-# ─── Telegram Bot (optional) ───────────────────────────────────────────────────
-if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_ADMIN_ID" ]]; then
-  echo "[+] Installing Telegram bot..."
-  mkdir -p "$BASE_DIR/telegram_bot"
-  if curl -Lsf "$REPO_RAW/telegram_bot/bot.py" -o "$BASE_DIR/telegram_bot/bot.py"; then
-    chmod +x "$BASE_DIR/telegram_bot/bot.py"
-    sudo tee /etc/systemd/system/libersuite-bot.service > /dev/null <<BOTSVC
-[Unit]
-Description=Libersuite Telegram Bot
-After=network.target libersuite.service
-
-[Service]
-Type=simple
-ExecStart=/usr/bin/python3 $BASE_DIR/telegram_bot/bot.py
-Restart=always
-RestartSec=10
-User=$RUN_USER
-WorkingDirectory=$BASE_DIR
-Environment=LIBERSUITE_BASE=$BASE_DIR
-Environment=HOME=$HOME
-
-[Install]
-WantedBy=multi-user.target
-BOTSVC
-    sudo systemctl daemon-reload
-    sudo systemctl enable libersuite-bot
-    sudo systemctl start libersuite-bot
-    echo "    Telegram bot: enabled (send /start to the bot)"
-    SUDOERS_FILE="/etc/sudoers.d/libersuite-bot-$RUN_USER"
-    echo "$RUN_USER ALL=(ALL) NOPASSWD: /usr/local/bin/libersuite restart, /usr/local/bin/libersuite start, /usr/local/bin/libersuite stop" | sudo tee "$SUDOERS_FILE" > /dev/null
-    sudo chmod 440 "$SUDOERS_FILE"
-  else
-    echo "    Telegram bot: could not download bot.py (skipped)"
-  fi
-fi
 
 echo ""
 echo "[+] Done."
