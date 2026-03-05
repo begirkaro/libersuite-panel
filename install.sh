@@ -7,7 +7,10 @@ SLIPSTREAM_URL="https://github.com/begirkaro/slipstream-rust/releases/download/v
 LIBERSUITE_URL=$(curl -s https://api.github.com/repos/omid-official/libersuite-panel/releases/latest \
   | grep browser_download_url \
   | grep libersuite-panel-linux-amd64 \
-  | cut -d '"' -f 4)
+  | cut -d '"' -f 4 \
+  | head -n1 \
+  | tr -d '\r\n' \
+  | xargs)
 LIBERSUITE_SH_URL="https://raw.githubusercontent.com/begirkaro/libersuite-panel/main/libersuite.sh"
 TELEGRAM_BOT_SCRIPT_URL="${LIBERSUITE_SH_URL%/libersuite.sh}/telegram_bot.py"
 
@@ -330,6 +333,12 @@ fi
 
 # ─── Install Libersuite panel ────────────────────────────────────────────────
 echo "[+] Downloading libersuite..."
+if [[ -z "$LIBERSUITE_URL" || "$LIBERSUITE_URL" != https://* ]]; then
+  echo "Error: Could not get panel download URL from GitHub (omid-official/libersuite-panel)."
+  echo "  - Ensure a Release exists with an asset named: libersuite-panel-linux-amd64"
+  echo "  - Or check: https://api.github.com/repos/omid-official/libersuite-panel/releases/latest"
+  exit 1
+fi
 cd "$LIBER_DIR"
 curl -L "$LIBERSUITE_URL" -o panel
 chmod +x panel
