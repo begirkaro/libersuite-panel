@@ -163,7 +163,7 @@ def do_list(token, chat_id, message_id=None):
         if len(txt) > 4000:
             send_message(token, chat_id, txt[:4000])
             if message_id is not None:
-                edit_message_text(token, chat_id, message_id, "Libersuite Panel\n\nیکی از دکمه‌های زیر را انتخاب کنید:", main_menu_keyboard())
+                edit_message_text(token, chat_id, message_id, "Libersuite Panel1\n\nیکی از دکمه‌های زیر را انتخاب کنید:", main_menu_keyboard())
             else:
                 send_message(token, chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard())
         else:
@@ -171,15 +171,23 @@ def do_list(token, chat_id, message_id=None):
 
 
 def do_add_finish(token, chat_id, data, message_id=None):
-    username = data.get("username", "")
-    password = data.get("password", "")
-    traffic = data.get("traffic", "0")
-    expires = data.get("expires", "0")
+    username = (data.get("username") or "").strip()
+    password = (data.get("password") or "").strip()
+    traffic_raw = (data.get("traffic") or "0").strip()
+    expires_raw = (data.get("expires") or "0").strip()
     lib_args = ["client", "add", username, password]
-    if traffic and traffic != "0":
-        lib_args += ["--traffic-limit", traffic]
-    if expires and expires != "0":
-        lib_args += ["--expires-in", expires]
+    try:
+        t = int(traffic_raw) if traffic_raw else 0
+        if t > 0:
+            lib_args += ["--traffic-limit", str(t)]
+    except ValueError:
+        pass
+    try:
+        e = int(expires_raw) if expires_raw else 0
+        if e > 0:
+            lib_args += ["--expires-in", str(e)]
+    except ValueError:
+        pass
     out, err, code = run_libersuite(lib_args)
     if code != 0:
         send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
