@@ -88,6 +88,19 @@ def send_message(token, chat_id, text, parse_mode="HTML", reply_markup=None):
     return telegram_request(token, "sendMessage", payload)
 
 
+def edit_message_text(token, chat_id, message_id, text, reply_markup=None):
+    payload = {
+        "chat_id": chat_id,
+        "message_id": message_id,
+        "text": text[:4096] if len(text) > 4096 else text,
+        "parse_mode": "HTML",
+        "disable_web_page_preview": True,
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    return telegram_request(token, "editMessageText", payload)
+
+
 def answer_callback(token, callback_query_id, text=None):
     payload = {"callback_query_id": callback_query_id}
     if text:
@@ -134,19 +147,30 @@ def escape_html(s):
     return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def send_result_and_menu(token, chat_id, text):
-    send_message(token, chat_id, text, reply_markup=main_menu_keyboard())
+def send_result_and_menu(token, chat_id, text, message_id=None):
+    if message_id is not None:
+        edit_message_text(token, chat_id, message_id, text, main_menu_keyboard())
+    else:
+        send_message(token, chat_id, text, reply_markup=main_menu_keyboard())
 
 
-def do_list(token, chat_id):
+def do_list(token, chat_id, message_id=None):
     out, err, code = run_libersuite(["client", "list"])
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
-        send_result_and_menu(token, chat_id, "<pre>%s</pre>" % escape_html(out))
+        txt = "<pre>%s</pre>" % escape_html(out)
+        if len(txt) > 4000:
+            send_message(token, chat_id, txt[:4000])
+            if message_id is not None:
+                edit_message_text(token, chat_id, message_id, "Libersuite Panel\n\nیکی از دکمه‌های زیر را انتخاب کنید:", main_menu_keyboard())
+            else:
+                send_message(token, chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard())
+        else:
+            send_result_and_menu(token, chat_id, txt, message_id)
 
 
-def do_add_finish(token, chat_id, data):
+def do_add_finish(token, chat_id, data, message_id=None):
     username = data.get("username", "")
     password = data.get("password", "")
     traffic = data.get("traffic", "0")
@@ -158,42 +182,42 @@ def do_add_finish(token, chat_id, data):
         lib_args += ["--expires-in", expires]
     out, err, code = run_libersuite(lib_args)
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
-        send_result_and_menu(token, chat_id, "✅ کاربر '%s' اضافه شد." % escape_html(username))
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' اضافه شد." % escape_html(username), message_id)
 
 
-def do_remove_finish(token, chat_id, username):
+def do_remove_finish(token, chat_id, username, message_id=None):
     out, err, code = run_libersuite(["client", "remove", username])
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
-        send_result_and_menu(token, chat_id, "✅ کاربر '%s' حذف شد." % escape_html(username))
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' حذف شد." % escape_html(username), message_id)
 
 
-def do_enable_finish(token, chat_id, username):
+def do_enable_finish(token, chat_id, username, message_id=None):
     out, err, code = run_libersuite(["client", "enable", username])
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
-        send_result_and_menu(token, chat_id, "✅ کاربر '%s' فعال شد." % escape_html(username))
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' فعال شد." % escape_html(username), message_id)
 
 
-def do_disable_finish(token, chat_id, username):
+def do_disable_finish(token, chat_id, username, message_id=None):
     out, err, code = run_libersuite(["client", "disable", username])
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
-        send_result_and_menu(token, chat_id, "✅ کاربر '%s' غیرفعال شد." % escape_html(username))
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' غیرفعال شد." % escape_html(username), message_id)
 
 
-def do_export_finish(token, chat_id, username, server_ip=None):
+def do_export_finish(token, chat_id, username, server_ip=None, message_id=None):
     lib_args = ["client", "export", username]
     if server_ip:
         lib_args.append(server_ip)
     out, err, code = run_libersuite(lib_args)
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
         for block in (out or "").split("\n\n"):
             block = block.strip()
@@ -202,60 +226,63 @@ def do_export_finish(token, chat_id, username, server_ip=None):
             elif block:
                 for i in range(0, len(block), 4000):
                     send_message(token, chat_id, "<pre>%s</pre>" % escape_html(block[i:i+4000]))
-        send_message(token, chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard())
+        if message_id is not None:
+            edit_message_text(token, chat_id, message_id, "Libersuite Panel\n\nیکی از دکمه‌های زیر را انتخاب کنید:", main_menu_keyboard())
+        else:
+            send_message(token, chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard())
 
 
-def do_restart(token, chat_id):
+def do_restart(token, chat_id, message_id=None):
     out, err, code = run_libersuite(["restart"])
     if code != 0:
-        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out), message_id)
     else:
-        send_result_and_menu(token, chat_id, "✅ پنل ریستارت شد.")
+        send_result_and_menu(token, chat_id, "✅ پنل ریستارت شد.", message_id)
 
 
-def do_status(token, chat_id):
+def do_status(token, chat_id, message_id=None):
     out, err, code = run_libersuite(["client", "list"])
     if code != 0:
-        send_result_and_menu(token, chat_id, "وضعیت: خطا در اجرای libersuite")
+        send_result_and_menu(token, chat_id, "وضعیت: خطا در اجرای libersuite", message_id)
     else:
-        send_result_and_menu(token, chat_id, "پنل در حال اجرا.\n<pre>%s</pre>" % escape_html((out or "No clients")[:2000]))
+        send_result_and_menu(token, chat_id, "پنل در حال اجرا.\n<pre>%s</pre>" % escape_html((out or "No clients")[:2000]), message_id)
 
 
-def handle_callback(token, admin_id, chat_id, callback_query_id, data):
+def handle_callback(token, admin_id, chat_id, callback_query_id, data, message_id):
     answer_callback(token, callback_query_id)
     if data == "cancel":
         if chat_id in user_states:
             del user_states[chat_id]
-        send_message(token, chat_id, "انصراف داده شد.", reply_markup=main_menu_keyboard())
+        edit_message_text(token, chat_id, message_id, "انصراف داده شد.", main_menu_keyboard())
         return
     if data == "list":
-        do_list(token, chat_id)
+        do_list(token, chat_id, message_id)
         return
     if data == "add":
-        user_states[chat_id] = {"action": "add", "step": 1, "data": {}}
-        send_message(token, chat_id, "مرحله ۱/۴\nنام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        user_states[chat_id] = {"action": "add", "step": 1, "data": {}, "message_id": message_id}
+        edit_message_text(token, chat_id, message_id, "مرحله 1/4\nنام کاربری را وارد کنید:", cancel_keyboard())
         return
     if data == "remove":
-        user_states[chat_id] = {"action": "remove", "step": 1, "data": {}}
-        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        user_states[chat_id] = {"action": "remove", "step": 1, "data": {}, "message_id": message_id}
+        edit_message_text(token, chat_id, message_id, "نام کاربری را وارد کنید:", cancel_keyboard())
         return
     if data == "enable":
-        user_states[chat_id] = {"action": "enable", "step": 1, "data": {}}
-        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        user_states[chat_id] = {"action": "enable", "step": 1, "data": {}, "message_id": message_id}
+        edit_message_text(token, chat_id, message_id, "نام کاربری را وارد کنید:", cancel_keyboard())
         return
     if data == "disable":
-        user_states[chat_id] = {"action": "disable", "step": 1, "data": {}}
-        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        user_states[chat_id] = {"action": "disable", "step": 1, "data": {}, "message_id": message_id}
+        edit_message_text(token, chat_id, message_id, "نام کاربری را وارد کنید:", cancel_keyboard())
         return
     if data == "export":
-        user_states[chat_id] = {"action": "export", "step": 1, "data": {}}
-        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        user_states[chat_id] = {"action": "export", "step": 1, "data": {}, "message_id": message_id}
+        edit_message_text(token, chat_id, message_id, "نام کاربری را وارد کنید:", cancel_keyboard())
         return
     if data == "restart":
-        do_restart(token, chat_id)
+        do_restart(token, chat_id, message_id)
         return
     if data == "status":
-        do_status(token, chat_id)
+        do_status(token, chat_id, message_id)
         return
 
 
@@ -267,51 +294,52 @@ def handle_text_with_state(token, admin_id, chat_id, text):
     action = state["action"]
     step = state["step"]
     data = state["data"]
+    msg_id = state.get("message_id")
 
     if action == "add":
         if step == 1:
             state["data"]["username"] = text
             state["step"] = 2
-            send_message(token, chat_id, "مرحله ۲/۴\nرمز عبور را وارد کنید:", reply_markup=cancel_keyboard())
+            edit_message_text(token, chat_id, msg_id, "مرحله 2/4\nرمز عبور را وارد کنید:", cancel_keyboard())
             return True
         if step == 2:
             state["data"]["password"] = text
             state["step"] = 3
-            send_message(token, chat_id, "مرحله ۳/۴\nترافیک به گیگابایت (۰ = نامحدود):", reply_markup=cancel_keyboard())
+            edit_message_text(token, chat_id, msg_id, "مرحله 3/4\nترافیک به گیگابایت (0 = نامحدود):", cancel_keyboard())
             return True
         if step == 3:
             state["data"]["traffic"] = text
             state["step"] = 4
-            send_message(token, chat_id, "مرحله ۴/۴\nاعتبار به روز (۰ = بدون انقضا):", reply_markup=cancel_keyboard())
+            edit_message_text(token, chat_id, msg_id, "مرحله 4/4\nاعتبار به روز (0 = بدون انقضا):", cancel_keyboard())
             return True
         if step == 4:
             state["data"]["expires"] = text
             del user_states[chat_id]
-            do_add_finish(token, chat_id, state["data"])
+            do_add_finish(token, chat_id, state["data"], msg_id)
             return True
 
     if action == "remove" and step == 1:
         del user_states[chat_id]
-        do_remove_finish(token, chat_id, text)
+        do_remove_finish(token, chat_id, text, msg_id)
         return True
     if action == "enable" and step == 1:
         del user_states[chat_id]
-        do_enable_finish(token, chat_id, text)
+        do_enable_finish(token, chat_id, text, msg_id)
         return True
     if action == "disable" and step == 1:
         del user_states[chat_id]
-        do_disable_finish(token, chat_id, text)
+        do_disable_finish(token, chat_id, text, msg_id)
         return True
     if action == "export":
         if step == 1:
             state["data"]["username"] = text
             state["step"] = 2
-            send_message(token, chat_id, "آدرس سرور (IP) را وارد کنید یا برای تشخیص خودکار «خودکار» بفرستید:", reply_markup=cancel_keyboard())
+            edit_message_text(token, chat_id, msg_id, "آدرس سرور (IP) را وارد کنید یا برای تشخیص خودکار «خودکار» بفرستید:", cancel_keyboard())
             return True
         if step == 2:
             server_ip = None if text in ("خودکار", "auto", "") else text
             del user_states[chat_id]
-            do_export_finish(token, chat_id, state["data"]["username"], server_ip)
+            do_export_finish(token, chat_id, state["data"]["username"], server_ip, msg_id)
             return True
     return False
 
@@ -358,6 +386,7 @@ def main():
             text = None
             callback_query_id = None
             callback_data = None
+            message_id = None
 
             if upd.get("callback_query"):
                 cq = upd["callback_query"]
@@ -365,6 +394,7 @@ def main():
                 chat_id = cq.get("message", {}).get("chat", {}).get("id")
                 callback_query_id = cq.get("id")
                 callback_data = cq.get("data")
+                message_id = cq.get("message", {}).get("message_id")
             else:
                 msg = upd.get("message") or upd.get("edited_message")
                 if not msg:
@@ -372,6 +402,7 @@ def main():
                 chat_id = msg.get("chat", {}).get("id")
                 from_id = msg.get("from", {}).get("id")
                 text = msg.get("text") or ""
+                message_id = None
 
             if from_id != admin_id:
                 if chat_id:
@@ -382,7 +413,7 @@ def main():
 
             try:
                 if callback_data is not None:
-                    handle_callback(token, admin_id, chat_id, callback_query_id, callback_data)
+                    handle_callback(token, admin_id, chat_id, callback_query_id, callback_data, message_id)
                 else:
                     handle_message(token, admin_id, chat_id, text)
             except Exception as e:
