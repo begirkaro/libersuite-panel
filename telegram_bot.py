@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Libersuite Telegram Bot - Management panel via Telegram.
+Libersuite Telegram Bot - Management panel via Telegram (button-based, step by step).
 Only responds to the numeric admin ID configured in config.env.
-Uses only Python standard library (no pip install).
 """
 import os
 import re
@@ -13,15 +12,16 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
-# Config next to script so it works under systemd when HOME is unset
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 CONF_FILE = os.path.join(SCRIPT_DIR, "config.env")
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 POLL_TIMEOUT = 30
 
+# state: chat_id -> {"action": "add"|"remove"|..., "step": int, "data": {...}}
+user_states = {}
+
 
 def load_config():
-    """Load TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_ID from config.env."""
     if not os.path.isfile(CONF_FILE):
         sys.stderr.write("Config not found: %s\n" % CONF_FILE)
         sys.exit(1)
@@ -69,36 +69,54 @@ def telegram_request(token, method, data=None):
         return None
 
 
-def send_message(token, chat_id, text, parse_mode="HTML"):
-    return telegram_request(token, "sendMessage", {
+def send_message(token, chat_id, text, parse_mode="HTML", reply_markup=None):
+    payload = {
         "chat_id": chat_id,
         "text": text[:4096] if len(text) > 4096 else text,
         "parse_mode": parse_mode,
         "disable_web_page_preview": True,
-    })
+    }
+    if reply_markup is not None:
+        payload["reply_markup"] = json.dumps(reply_markup)
+    return telegram_request(token, "sendMessage", payload)
+
+
+def answer_callback(token, callback_query_id, text=None):
+    payload = {"callback_query_id": callback_query_id}
+    if text:
+        payload["text"] = text[:200]
+    return telegram_request(token, "answerCallbackQuery", payload)
+
+
+def main_menu_keyboard():
+    return {
+        "inline_keyboard": [
+            [{"text": "📋 لیست کاربران", "callback_data": "list"}],
+            [{"text": "➕ افزودن کاربر", "callback_data": "add"}],
+            [{"text": "❌ حذف کاربر", "callback_data": "remove"}, {"text": "✅ فعال کردن", "callback_data": "enable"}],
+            [{"text": "⛔ غیرفعال کردن", "callback_data": "disable"}, {"text": "📤 خروجی کاربر", "callback_data": "export"}],
+            [{"text": "🔄 ریستارت پنل", "callback_data": "restart"}, {"text": "📊 وضعیت", "callback_data": "status"}],
+        ]
+    }
+
+
+def cancel_keyboard():
+    return {"inline_keyboard": [[{"text": "❌ انصراف", "callback_data": "cancel"}]]}
 
 
 def run_libersuite(args):
-    """Run libersuite CLI and return (stdout, stderr, returncode)."""
     cmd = ["/usr/local/bin/libersuite"] + args
     env = os.environ.copy()
-    # libersuite expects $HOME/libersuite/config.env; script is in that dir, so HOME = parent of script dir
     env["HOME"] = os.path.dirname(SCRIPT_DIR)
     try:
-        p = subprocess.run(
-            cmd,
-            capture_output=True,
-            timeout=60,
-            env=env,
-            cwd=SCRIPT_DIR,
-        )
+        p = subprocess.run(cmd, capture_output=True, timeout=60, env=env, cwd=SCRIPT_DIR)
         out = (p.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (p.stderr or b"").decode("utf-8", errors="replace").strip()
         return out, err, p.returncode
     except subprocess.TimeoutExpired:
         return "", "Command timed out", -1
     except FileNotFoundError:
-        return "", "libersuite command not found (is /usr/local/bin/libersuite installed?)", -1
+        return "", "libersuite command not found", -1
     except Exception as e:
         return "", str(e), -1
 
@@ -106,135 +124,202 @@ def run_libersuite(args):
 def escape_html(s):
     if not s:
         return ""
-    return (s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
-def handle_command(token, admin_id, chat_id, text):
-    text = (text or "").strip()
-    if not text.startswith("/"):
+def send_result_and_menu(token, chat_id, text):
+    send_message(token, chat_id, text, reply_markup=main_menu_keyboard())
+
+
+def do_list(token, chat_id):
+    out, err, code = run_libersuite(["client", "list"])
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        send_result_and_menu(token, chat_id, "<pre>%s</pre>" % escape_html(out))
+
+
+def do_add_finish(token, chat_id, data):
+    username = data.get("username", "")
+    password = data.get("password", "")
+    traffic = data.get("traffic", "0")
+    expires = data.get("expires", "0")
+    lib_args = ["client", "add", username, password]
+    if traffic and traffic != "0":
+        lib_args += ["--traffic-limit", traffic]
+    if expires and expires != "0":
+        lib_args += ["--expires-in", expires]
+    out, err, code = run_libersuite(lib_args)
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' اضافه شد." % escape_html(username))
+
+
+def do_remove_finish(token, chat_id, username):
+    out, err, code = run_libersuite(["client", "remove", username])
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' حذف شد." % escape_html(username))
+
+
+def do_enable_finish(token, chat_id, username):
+    out, err, code = run_libersuite(["client", "enable", username])
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' فعال شد." % escape_html(username))
+
+
+def do_disable_finish(token, chat_id, username):
+    out, err, code = run_libersuite(["client", "disable", username])
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        send_result_and_menu(token, chat_id, "✅ کاربر '%s' غیرفعال شد." % escape_html(username))
+
+
+def do_export_finish(token, chat_id, username, server_ip=None):
+    lib_args = ["client", "export", username]
+    if server_ip:
+        lib_args.append(server_ip)
+    out, err, code = run_libersuite(lib_args)
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        for block in (out or "").split("\n\n"):
+            block = block.strip()
+            if block and len(block) <= 4000:
+                send_message(token, chat_id, "<pre>%s</pre>" % escape_html(block))
+            elif block:
+                for i in range(0, len(block), 4000):
+                    send_message(token, chat_id, "<pre>%s</pre>" % escape_html(block[i:i+4000]))
+        send_message(token, chat_id, "منوی اصلی:", reply_markup=main_menu_keyboard())
+
+
+def do_restart(token, chat_id):
+    out, err, code = run_libersuite(["restart"])
+    if code != 0:
+        send_result_and_menu(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
+    else:
+        send_result_and_menu(token, chat_id, "✅ پنل ریستارت شد.")
+
+
+def do_status(token, chat_id):
+    out, err, code = run_libersuite(["client", "list"])
+    if code != 0:
+        send_result_and_menu(token, chat_id, "وضعیت: خطا در اجرای libersuite")
+    else:
+        send_result_and_menu(token, chat_id, "پنل در حال اجرا.\n<pre>%s</pre>" % escape_html((out or "No clients")[:2000]))
+
+
+def handle_callback(token, admin_id, chat_id, callback_query_id, data):
+    answer_callback(token, callback_query_id)
+    if data == "cancel":
+        if chat_id in user_states:
+            del user_states[chat_id]
+        send_message(token, chat_id, "انصراف داده شد.", reply_markup=main_menu_keyboard())
         return
-    parts = re.split(r"\s+", text, maxsplit=1)
-    cmd = parts[0].lower()
-    rest = (parts[1].strip() if len(parts) > 1 else "")
+    if data == "list":
+        do_list(token, chat_id)
+        return
+    if data == "add":
+        user_states[chat_id] = {"action": "add", "step": 1, "data": {}}
+        send_message(token, chat_id, "مرحله ۱/۴\nنام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        return
+    if data == "remove":
+        user_states[chat_id] = {"action": "remove", "step": 1, "data": {}}
+        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        return
+    if data == "enable":
+        user_states[chat_id] = {"action": "enable", "step": 1, "data": {}}
+        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        return
+    if data == "disable":
+        user_states[chat_id] = {"action": "disable", "step": 1, "data": {}}
+        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        return
+    if data == "export":
+        user_states[chat_id] = {"action": "export", "step": 1, "data": {}}
+        send_message(token, chat_id, "نام کاربری را وارد کنید:", reply_markup=cancel_keyboard())
+        return
+    if data == "restart":
+        do_restart(token, chat_id)
+        return
+    if data == "status":
+        do_status(token, chat_id)
+        return
 
-    if cmd == "/start":
-        send_message(token, chat_id,
-            "Libersuite Panel\n\n"
-            "دستورات:\n"
-            "/list — لیست کاربران\n"
-            "/add <user> <pass> [ترافیک_گیگ] [اعتبار_روز]\n"
-            "/remove <user>\n"
-            "/enable <user>\n"
-            "/disable <user>\n"
-            "/export <user> [ip]\n"
-            "/restart — ریستارت پنل\n"
-            "/status — وضعیت سرویس"
+
+def handle_text_with_state(token, admin_id, chat_id, text):
+    text = (text or "").strip()
+    state = user_states.get(chat_id)
+    if not state:
+        return False
+    action = state["action"]
+    step = state["step"]
+    data = state["data"]
+
+    if action == "add":
+        if step == 1:
+            state["data"]["username"] = text
+            state["step"] = 2
+            send_message(token, chat_id, "مرحله ۲/۴\nرمز عبور را وارد کنید:", reply_markup=cancel_keyboard())
+            return True
+        if step == 2:
+            state["data"]["password"] = text
+            state["step"] = 3
+            send_message(token, chat_id, "مرحله ۳/۴\nترافیک به گیگابایت (۰ = نامحدود):", reply_markup=cancel_keyboard())
+            return True
+        if step == 3:
+            state["data"]["traffic"] = text
+            state["step"] = 4
+            send_message(token, chat_id, "مرحله ۴/۴\nاعتبار به روز (۰ = بدون انقضا):", reply_markup=cancel_keyboard())
+            return True
+        if step == 4:
+            state["data"]["expires"] = text
+            del user_states[chat_id]
+            do_add_finish(token, chat_id, state["data"])
+            return True
+
+    if action == "remove" and step == 1:
+        del user_states[chat_id]
+        do_remove_finish(token, chat_id, text)
+        return True
+    if action == "enable" and step == 1:
+        del user_states[chat_id]
+        do_enable_finish(token, chat_id, text)
+        return True
+    if action == "disable" and step == 1:
+        del user_states[chat_id]
+        do_disable_finish(token, chat_id, text)
+        return True
+    if action == "export":
+        if step == 1:
+            state["data"]["username"] = text
+            state["step"] = 2
+            send_message(token, chat_id, "آدرس سرور (IP) را وارد کنید یا برای تشخیص خودکار «خودکار» بفرستید:", reply_markup=cancel_keyboard())
+            return True
+        if step == 2:
+            server_ip = None if text in ("خودکار", "auto", "") else text
+            del user_states[chat_id]
+            do_export_finish(token, chat_id, state["data"]["username"], server_ip)
+            return True
+    return False
+
+
+def handle_message(token, admin_id, chat_id, text):
+    if handle_text_with_state(token, admin_id, chat_id, text):
+        return
+    if (text or "").strip() == "/start" or not text:
+        send_message(
+            token, chat_id,
+            "Libersuite Panel\n\nیکی از دکمه‌های زیر را انتخاب کنید:",
+            reply_markup=main_menu_keyboard()
         )
         return
-
-    if cmd == "/list":
-        out, err, code = run_libersuite(["client", "list"])
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            send_message(token, chat_id, "<pre>%s</pre>" % escape_html(out))
-        return
-
-    if cmd == "/add":
-        args = re.split(r"\s+", rest, maxsplit=3)
-        if len(args) < 2:
-            send_message(token, chat_id, "استفاده: /add &lt;username&gt; &lt;password&gt; [traffic_gb] [expires_days]")
-            return
-        username, password = args[0], args[1]
-        traffic = args[2] if len(args) > 2 else ""
-        expires = args[3] if len(args) > 3 else ""
-        lib_args = ["client", "add", username, password]
-        if traffic:
-            lib_args += ["--traffic-limit", traffic]
-        if expires:
-            lib_args += ["--expires-in", expires]
-        out, err, code = run_libersuite(lib_args)
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            send_message(token, chat_id, "کاربر '%s' اضافه شد." % escape_html(username))
-        return
-
-    if cmd == "/remove":
-        if not rest:
-            send_message(token, chat_id, "استفاده: /remove &lt;username&gt;")
-            return
-        username = rest.split()[0]
-        out, err, code = run_libersuite(["client", "remove", username])
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            send_message(token, chat_id, "کاربر '%s' حذف شد." % escape_html(username))
-        return
-
-    if cmd == "/enable":
-        if not rest:
-            send_message(token, chat_id, "استفاده: /enable &lt;username&gt;")
-            return
-        username = rest.split()[0]
-        out, err, code = run_libersuite(["client", "enable", username])
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            send_message(token, chat_id, "کاربر '%s' فعال شد." % escape_html(username))
-        return
-
-    if cmd == "/disable":
-        if not rest:
-            send_message(token, chat_id, "استفاده: /disable &lt;username&gt;")
-            return
-        username = rest.split()[0]
-        out, err, code = run_libersuite(["client", "disable", username])
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            send_message(token, chat_id, "کاربر '%s' غیرفعال شد." % escape_html(username))
-        return
-
-    if cmd == "/export":
-        args = rest.split()
-        if not args:
-            send_message(token, chat_id, "استفاده: /export &lt;username&gt; [server_ip]")
-            return
-        username = args[0]
-        lib_args = ["client", "export", username]
-        if len(args) > 1:
-            lib_args.append(args[1])
-        out, err, code = run_libersuite(lib_args)
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            for block in (out or "").split("\n\n"):
-                block = block.strip()
-                if block and len(block) <= 4000:
-                    send_message(token, chat_id, "<pre>%s</pre>" % escape_html(block))
-                elif block:
-                    for i in range(0, len(block), 4000):
-                        send_message(token, chat_id, "<pre>%s</pre>" % escape_html(block[i:i+4000]))
-        return
-
-    if cmd == "/restart":
-        out, err, code = run_libersuite(["restart"])
-        if code != 0:
-            send_message(token, chat_id, "خطا:\n<code>%s</code>" % escape_html(err or out))
-        else:
-            send_message(token, chat_id, "پنل ریستارت شد.")
-        return
-
-    if cmd == "/status":
-        out, err, code = run_libersuite(["client", "list"])
-        if code != 0:
-            send_message(token, chat_id, "وضعیت: خطا در اجرای libersuite")
-        else:
-            send_message(token, chat_id, "پنل در حال اجرا.\n<pre>%s</pre>" % escape_html((out or "No clients")[:2000]))
-        return
-
-    send_message(token, chat_id, "دستور نامعتبر. /start برای راهنما.")
+    send_message(token, chat_id, "از منو دکمه انتخاب کنید یا /start بزنید.", reply_markup=main_menu_keyboard())
 
 
 def main():
@@ -261,21 +346,43 @@ def main():
             continue
         for upd in data.get("result", []):
             offset = upd["update_id"] + 1
-            msg = upd.get("message") or upd.get("edited_message")
-            if not msg:
-                continue
-            chat_id = msg.get("chat", {}).get("id")
-            from_id = msg.get("from", {}).get("id")
+            chat_id = None
+            from_id = None
+            text = None
+            callback_query_id = None
+            callback_data = None
+
+            if upd.get("callback_query"):
+                cq = upd["callback_query"]
+                from_id = cq.get("from", {}).get("id")
+                chat_id = cq.get("message", {}).get("chat", {}).get("id")
+                callback_query_id = cq.get("id")
+                callback_data = cq.get("data")
+            else:
+                msg = upd.get("message") or upd.get("edited_message")
+                if not msg:
+                    continue
+                chat_id = msg.get("chat", {}).get("id")
+                from_id = msg.get("from", {}).get("id")
+                text = msg.get("text") or ""
+
             if from_id != admin_id:
-                send_message(token, chat_id, "دسترسی مجاز نیست. فقط ادمین.")
+                if chat_id:
+                    send_message(token, chat_id, "دسترسی مجاز نیست. فقط ادمین.")
+                if callback_query_id:
+                    answer_callback(token, callback_query_id, "دسترسی مجاز نیست")
                 continue
-            text = msg.get("text") or ""
+
             try:
-                handle_command(token, admin_id, chat_id, text)
+                if callback_data is not None:
+                    handle_callback(token, admin_id, chat_id, callback_query_id, callback_data)
+                else:
+                    handle_message(token, admin_id, chat_id, text)
             except Exception as e:
-                sys.stderr.write("handle_command error: %s\n" % e)
+                sys.stderr.write("handle error: %s\n" % e)
                 sys.stderr.flush()
-                send_message(token, chat_id, "خطا: %s" % escape_html(str(e)))
+                if chat_id:
+                    send_message(token, chat_id, "خطا: %s" % escape_html(str(e)), reply_markup=main_menu_keyboard())
 
 
 if __name__ == "__main__":
