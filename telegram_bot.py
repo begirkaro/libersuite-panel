@@ -13,7 +13,14 @@ import urllib.error
 import urllib.parse
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+# config.env may be next to script or in parent (e.g. /root/libersuite/config.env when script is in .../libersuite/libersuite/)
 CONF_FILE = os.path.join(SCRIPT_DIR, "config.env")
+if not os.path.isfile(CONF_FILE):
+    parent_conf = os.path.join(os.path.dirname(SCRIPT_DIR), "config.env")
+    if os.path.isfile(parent_conf):
+        CONF_FILE = parent_conf
+# Directory containing config (for running libersuite CLI)
+LIBERSUITE_DIR = os.path.dirname(CONF_FILE)
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 POLL_TIMEOUT = 30
 
@@ -107,9 +114,9 @@ def cancel_keyboard():
 def run_libersuite(args):
     cmd = ["/usr/local/bin/libersuite"] + args
     env = os.environ.copy()
-    env["HOME"] = os.path.dirname(SCRIPT_DIR)
+    env["HOME"] = os.path.dirname(LIBERSUITE_DIR)
     try:
-        p = subprocess.run(cmd, capture_output=True, timeout=60, env=env, cwd=SCRIPT_DIR)
+        p = subprocess.run(cmd, capture_output=True, timeout=60, env=env, cwd=LIBERSUITE_DIR)
         out = (p.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (p.stderr or b"").decode("utf-8", errors="replace").strip()
         return out, err, p.returncode
