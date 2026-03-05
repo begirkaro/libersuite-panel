@@ -78,6 +78,14 @@ use_slipstream() {
 }
 
 save_conf() {
+  # Preserve Telegram vars if already in config (so we don't overwrite when rewriting services)
+  local telegram_token="" telegram_admin=""
+  if [[ -f "$CONF_FILE" ]]; then
+    telegram_token="$(grep -E '^TELEGRAM_BOT_TOKEN=' "$CONF_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")"
+    telegram_admin="$(grep -E '^TELEGRAM_ADMIN_ID=' "$CONF_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' | tr -d "'")"
+  fi
+  TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-$telegram_token}"
+  TELEGRAM_ADMIN_ID="${TELEGRAM_ADMIN_ID:-$telegram_admin}"
   cat > "$CONF_FILE" <<EOF
 TUNNEL_MODE="$TUNNEL_MODE"
 DOMAIN="$DOMAIN"
@@ -89,6 +97,8 @@ SLIPSTREAM_ADDRS="$SLIPSTREAM_ADDRS"
 LIBERSUITE_PORT="$LIBERSUITE_PORT"
 SSH_PORT="$SSH_PORT"
 SOCKS_PORT="$SOCKS_PORT"
+TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+TELEGRAM_ADMIN_ID="$TELEGRAM_ADMIN_ID"
 EOF
 }
 
@@ -366,6 +376,7 @@ EOF
 # ===== Helper: list active tunnel services =====
 tunnel_services() {
   local svcs="libersuite"
+  [[ -f /etc/systemd/system/libersuite-bot.service ]] && svcs="$svcs libersuite-bot"
   load_conf 2>/dev/null || true
   use_dnstt && svcs="$svcs dnstt"
   use_slipstream && svcs="$svcs slipstream"
@@ -386,9 +397,9 @@ update() {
 
 uninstall() {
   need_root
-  systemctl stop slipstream-watchdog.timer dnstt slipstream libersuite 2>/dev/null || true
-  systemctl disable slipstream-watchdog.timer dnstt slipstream libersuite 2>/dev/null || true
-  rm -f "$DNSTT_SERVICE" "$SLIPSTREAM_SERVICE" "$SLIPSTREAM_WATCHDOG_SERVICE" "$SLIPSTREAM_WATCHDOG_TIMER" "$LIBER_SERVICE"
+  systemctl stop libersuite-bot slipstream-watchdog.timer dnstt slipstream libersuite 2>/dev/null || true
+  systemctl disable libersuite-bot slipstream-watchdog.timer dnstt slipstream libersuite 2>/dev/null || true
+  rm -f "$DNSTT_SERVICE" "$SLIPSTREAM_SERVICE" "$SLIPSTREAM_WATCHDOG_SERVICE" "$SLIPSTREAM_WATCHDOG_TIMER" "$LIBER_SERVICE" "/etc/systemd/system/libersuite-bot.service"
   rm -f "$BIN_TARGET"
   systemctl daemon-reload
   rm -rf "$BASE_DIR"

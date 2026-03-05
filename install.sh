@@ -9,6 +9,7 @@ LIBERSUITE_URL=$(curl -s https://api.github.com/repos/begirkaro/libersuite-panel
   | grep libersuite-panel-linux-amd64 \
   | cut -d '"' -f 4)
 LIBERSUITE_SH_URL="https://raw.githubusercontent.com/begirkaro/libersuite-panel/main/libersuite.sh"
+TELEGRAM_BOT_SCRIPT_URL="${LIBERSUITE_SH_URL%/libersuite.sh}/telegram_bot.py"
 
 BASE_DIR="$HOME/libersuite"
 DNSTT_DIR="$BASE_DIR/dnstt"
@@ -102,6 +103,24 @@ SOCKS_PORT="${SOCKS_PORT:-1080}"
 if [[ "$LIBERSUITE_PORT" == "$SSH_PORT" || "$LIBERSUITE_PORT" == "$SOCKS_PORT" || "$SSH_PORT" == "$SOCKS_PORT" ]]; then
   echo "Ports must be unique: libersuite, ssh, and socks cannot be the same"
   exit 1
+fi
+
+# ─── Telegram Bot (management panel) ───────────────────────────────────────
+echo ""
+echo "Telegram Bot (panel management):"
+read -rp "Enter Telegram Bot Token (from @BotFather): " TELEGRAM_BOT_TOKEN
+read -rp "Enter Telegram Admin numeric ID: " TELEGRAM_ADMIN_ID
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+TELEGRAM_ADMIN_ID="${TELEGRAM_ADMIN_ID:-}"
+if [[ -n "$TELEGRAM_BOT_TOKEN" && -n "$TELEGRAM_ADMIN_ID" ]]; then
+  USE_TELEGRAM_BOT=true
+else
+  USE_TELEGRAM_BOT=false
+  if [[ -z "$TELEGRAM_BOT_TOKEN" && -z "$TELEGRAM_ADMIN_ID" ]]; then
+    echo "Skipping Telegram bot. You can add TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_ID to $CONF_FILE later and start libersuite-bot service."
+  else
+    echo "Both token and admin ID are required. Skipping Telegram bot for now."
+  fi
 fi
 
 # ─── Build DNSTT addresses ───────────────────────────────────────────────────
@@ -355,6 +374,37 @@ echo "[+] Installing libersuite command to $BIN_TARGET..."
 sudo install -m 755 "$LIBER_DIR/libersuite" "$BIN_TARGET"
 echo "libersuite command installed"
 
+echo "[+] Downloading Telegram bot script..."
+curl -L "$TELEGRAM_BOT_SCRIPT_URL" -o "$LIBER_DIR/telegram_bot.py"
+chmod +x "$LIBER_DIR/telegram_bot.py"
+
+echo "[+] Installing Telegram bot service..."
+sudo tee /etc/systemd/system/libersuite-bot.service > /dev/null <<EOF
+[Unit]
+Description=Libersuite Telegram Bot
+After=network.target libersuite.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/env python3 $LIBER_DIR/telegram_bot.py
+Restart=always
+RestartSec=10
+User=$RUN_USER
+WorkingDirectory=$LIBER_DIR
+
+[Install]
+WantedBy=multi-user.target
+EOF
+sudo systemctl daemon-reload
+
+if $USE_TELEGRAM_BOT; then
+  sudo systemctl enable libersuite-bot
+  sudo systemctl start libersuite-bot
+  echo "Telegram bot started. Only admin ID $TELEGRAM_ADMIN_ID can use the bot."
+else
+  echo "Telegram bot service installed. Add TELEGRAM_BOT_TOKEN and TELEGRAM_ADMIN_ID to $CONF_FILE then run: sudo systemctl enable libersuite-bot && sudo systemctl start libersuite-bot"
+fi
+
 echo "[+] Saving config..."
 cat > "$CONF_FILE" <<EOF
 TUNNEL_MODE="$TUNNEL_MODE"
@@ -367,10 +417,15 @@ SLIPSTREAM_ADDRS="$SLIPSTREAM_ADDRS"
 LIBERSUITE_PORT="$LIBERSUITE_PORT"
 SSH_PORT="$SSH_PORT"
 SOCKS_PORT="$SOCKS_PORT"
+TELEGRAM_BOT_TOKEN="$TELEGRAM_BOT_TOKEN"
+TELEGRAM_ADMIN_ID="$TELEGRAM_ADMIN_ID"
 EOF
 
 echo ""
 echo "[+] Done."
+if $USE_TELEGRAM_BOT; then
+  echo "    Telegram bot: running (admin ID: $TELEGRAM_ADMIN_ID)"
+fi
 if $USE_DNSTT; then
   echo "    DNSTT domains: $DOMAIN"
   echo "    DNSTT pubkey:  $(cat "$DNSTT_DIR/server.pub" 2>/dev/null || echo 'N/A')"
