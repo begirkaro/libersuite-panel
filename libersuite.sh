@@ -89,6 +89,8 @@ SLIPSTREAM_ADDRS="$SLIPSTREAM_ADDRS"
 LIBERSUITE_PORT="$LIBERSUITE_PORT"
 SSH_PORT="$SSH_PORT"
 SOCKS_PORT="$SOCKS_PORT"
+TELEGRAM_BOT_TOKEN="${TELEGRAM_BOT_TOKEN:-}"
+TELEGRAM_ADMIN_ID="${TELEGRAM_ADMIN_ID:-}"
 EOF
 }
 
@@ -386,6 +388,10 @@ update() {
 
 uninstall() {
   need_root
+  systemctl stop libersuite-bot 2>/dev/null || true
+  systemctl disable libersuite-bot 2>/dev/null || true
+  rm -f /etc/systemd/system/libersuite-bot.service
+  rm -f "/etc/sudoers.d/libersuite-bot-$(whoami)"
   systemctl stop slipstream-watchdog.timer dnstt slipstream libersuite 2>/dev/null || true
   systemctl disable slipstream-watchdog.timer dnstt slipstream libersuite 2>/dev/null || true
   rm -f "$DNSTT_SERVICE" "$SLIPSTREAM_SERVICE" "$SLIPSTREAM_WATCHDOG_SERVICE" "$SLIPSTREAM_WATCHDOG_TIMER" "$LIBER_SERVICE"
