@@ -13,7 +13,9 @@ import urllib.request
 import urllib.error
 import urllib.parse
 
-CONF_FILE = os.path.expanduser("~/libersuite/config.env")
+# Config next to script so it works under systemd when HOME is unset
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CONF_FILE = os.path.join(SCRIPT_DIR, "config.env")
 TELEGRAM_API = "https://api.telegram.org/bot{token}/{method}"
 POLL_TIMEOUT = 30
 
@@ -80,14 +82,15 @@ def run_libersuite(args):
     """Run libersuite CLI and return (stdout, stderr, returncode)."""
     cmd = ["/usr/local/bin/libersuite"] + args
     env = os.environ.copy()
-    env["HOME"] = os.path.expanduser("~")
+    # libersuite expects $HOME/libersuite/config.env; script is in that dir, so HOME = parent of script dir
+    env["HOME"] = os.path.dirname(SCRIPT_DIR)
     try:
         p = subprocess.run(
             cmd,
             capture_output=True,
             timeout=60,
             env=env,
-            cwd=os.path.expanduser("~/libersuite"),
+            cwd=SCRIPT_DIR,
         )
         out = (p.stdout or b"").decode("utf-8", errors="replace").strip()
         err = (p.stderr or b"").decode("utf-8", errors="replace").strip()
@@ -236,6 +239,8 @@ def handle_command(token, admin_id, chat_id, text):
 
 def main():
     token, admin_id = load_config()
+    sys.stderr.write("Libersuite bot started (admin_id=%s). Waiting for messages...\n" % admin_id)
+    sys.stderr.flush()
     offset = None
     while True:
         url = TELEGRAM_API.format(token=token, method="getUpdates")
@@ -248,8 +253,11 @@ def main():
                 data = json.loads(r.read().decode("utf-8"))
         except Exception as e:
             sys.stderr.write("Poll error: %s\n" % e)
+            sys.stderr.flush()
             continue
         if not data.get("ok"):
+            sys.stderr.write("getUpdates not ok: %s\n" % (json.dumps(data)[:500] if isinstance(data, dict) else str(data)))
+            sys.stderr.flush()
             continue
         for upd in data.get("result", []):
             offset = upd["update_id"] + 1
@@ -262,7 +270,12 @@ def main():
                 send_message(token, chat_id, "دسترسی مجاز نیست. فقط ادمین.")
                 continue
             text = msg.get("text") or ""
-            handle_command(token, admin_id, chat_id, text)
+            try:
+                handle_command(token, admin_id, chat_id, text)
+            except Exception as e:
+                sys.stderr.write("handle_command error: %s\n" % e)
+                sys.stderr.flush()
+                send_message(token, chat_id, "خطا: %s" % escape_html(str(e)))
 
 
 if __name__ == "__main__":

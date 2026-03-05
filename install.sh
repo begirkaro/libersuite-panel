@@ -3,7 +3,7 @@
 set -e
 
 DNSTT_URL="https://dnstt.network/dnstt-server-linux-amd64"
-SLIPSTREAM_URL="https://github.com/begirkaro/slipstream-rust/releases/download/v0.1.0/slipstream-server-linux-amd64"
+SLIPSTREAM_URL="https://github.com/omid-official/slipstream-rust/releases/download/v0.1.0/slipstream-server-linux-amd64"
 LIBERSUITE_URL=$(curl -s https://api.github.com/repos/omid-official/libersuite-panel/releases/latest \
   | grep browser_download_url \
   | grep libersuite-panel-linux-amd64 \
